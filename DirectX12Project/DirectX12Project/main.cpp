@@ -339,7 +339,9 @@ int main()
 	}
 
 	/*バックバッファーとディスクリプタはそれぞれ二つずつあるので、
-	  for文でバックバッファーの数分回し、それぞれを関連付けるようにする。*/
+	  for文でバックバッファーの数分回し、それぞれを関連付けるようにする。
+	  レンダーターゲットビューはダブルバッファリングを行った時の
+	  表とか裏の奴*/
 #pragma endregion
 
 
@@ -362,16 +364,61 @@ int main()
 		}
 
 #pragma region スワップチェーンの実行
-
-#pragma endregion
-
 		//毎フレームクリア
 		result = _cmdAllocator->Reset();
 
-		//現在のバックバッファーを指すインデックスを取得(例)表:0,裏1 みたいな感じ)
+		//レンダーターゲットの設定↓
+
+		//次のフレームで表示されるバッファーのインデックス(例)表:0,裏1 みたいな感じ)
 		auto bbIdx = _swapchain->GetCurrentBackBufferIndex();//bbIdx(BackBufferIndex)
 
+		//レンダーターゲットビューの描画
+		auto rtvH = rtvHeaps->GetCPUDescriptorHandleForHeapStart();
 
+		rtvH.ptr += bbIdx * _dev->GetDescriptorHandleIncrementSize(
+			D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+
+		//レンダーターゲットの設定↑
+		//----------------------------------------------------------------------------
+		//レンダーターゲットのクリア↓
+
+		//画面を特定の色を指定してクリア
+		float clearColor[] = { 1.0f,1.0f,0.0f,1.0f };
+
+		//色を反映させる
+		_cmdList->ClearRenderTargetView(rtvH, clearColor, 0, nullptr);
+
+		/*レンダーターゲットビューの数
+		　rtvHeapsのアドレス
+		 マルチレンダーターゲット
+		 深度*/
+		_cmdList->OMSetRenderTargets(1, &rtvH, true, nullptr);
+
+		//レンダーターゲットのクリア↑
+		//---------------------------------------------------------------------
+		//ため込んだ命令の実行↓
+
+		//命令のクローズ
+		/*命令を終了して、実行フェーズに移行する*/
+		_cmdList->Close();
+
+		//コマンドリストの実行
+		ID3D12CommandList* cmdlists[] = { _cmdList };
+		_cmdQueue->ExecuteCommandLists(1, cmdlists);
+
+		/*実行が終わったらコマンドリストは不要になるため、
+		  中身をクリアする*/
+		  //キューをクリア
+		_cmdAllocator->Reset();
+		//実行を終了し、命令フェーズに移行する
+		_cmdList->Reset(_cmdAllocator, nullptr);
+
+		//ため込んだ命令の実行↑
+		//---------------------------------------------------------------------------
+		//画面のスワップ
+		/*命令の実行が完了したら、フリップを行う*/
+		_swapchain->Present(1, 0);
+#pragma endregion
 	}
 #pragma endregion
 

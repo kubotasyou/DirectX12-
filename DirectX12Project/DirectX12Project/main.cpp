@@ -1,7 +1,8 @@
 #include <Windows.h>
-#include <d3d12.h>
-#include <dxgi1_6.h>
+#include <d3d12.h>  //ファイルリンク(.lib)が必要
+#include <dxgi1_6.h>//ファイルリンク(.lib)が必要
 #include <vector>
+#include <DirectXMath.h>
 
 //リンクの設定
 #pragma comment(lib,"d3d12.lib")
@@ -12,6 +13,7 @@
 #endif 
 
 using namespace std;
+using namespace DirectX;//DirectXMathの名前空間
 
 const int window_width = 1280;//画面横幅
 const int window_height = 720;//画面縦幅
@@ -20,6 +22,14 @@ const int window_height = 720;//画面縦幅
 ID3D12Device* _dev = nullptr;
 IDXGIFactory6* _dxgiFactory = nullptr;
 IDXGISwapChain4* _swapchain = nullptr;
+
+//頂点数(頂点の順序は時計回りにする)
+XMFLOAT3 vertices[] = 
+{
+	{-1.0f, -1.0f, 0.0f},
+    {-1.0f, +1.0f, 0.0f},
+    {+1.0f, -1.0f, 0.0f},
+};
 
 
 //// @brief コンソール 画面 に フォーマット 付き 文字列 を 表示
@@ -122,6 +132,7 @@ int main()
 #pragma endregion
 
 #pragma region デバッグレイヤーの有効化&DXGIのエラーメッセージ取得
+
 #ifdef _DEBUG
 	//デバッグレイヤーをオンにする
 	EnableDebugLayer();
@@ -132,6 +143,7 @@ int main()
 	CreateDXGIFactory1(IID_PPV_ARGS(&_dxgiFactory));
 
 #endif // _DEBUG
+
 #pragma endregion
 
 #pragma region Direct3Dデバイスの初期化
@@ -158,7 +170,6 @@ int main()
 		//どれもダメだった場合は_devにnullptrが入る
 	}
 #pragma endregion
-
 
 #pragma region 使用するアダプターを明示的に列挙する(後で消してもいい)
 	//_dxgiFactoryにDXGIFactoryオブジェクトが入る。
@@ -196,8 +207,6 @@ int main()
 			break;
 		}
 	}
-
-#pragma endregion
 
 #pragma endregion
 
@@ -370,9 +379,8 @@ int main()
 　    すべて完了したかどうかを調べる*/
 #pragma endregion
 
-
 #pragma region ディスクリプタとスワップチェーンを関連付け+レンダーターゲットビューの作成
-	//スワップチェーンのパラメーターを取得
+	 //スワップチェーンのパラメーターを取得
 	DXGI_SWAP_CHAIN_DESC scDesc = {};
 	result = _swapchain->GetDesc(&scDesc);
 
@@ -402,6 +410,96 @@ int main()
 	  レンダーターゲットビューはダブルバッファリングを行った時の
 	  表とか裏の奴*/
 #pragma endregion
+
+#pragma endregion
+
+
+
+
+#pragma region 頂点バッファーの作成
+
+	//頂点ヒープ設定
+	D3D12_HEAP_PROPERTIES heapprop = {};
+
+	heapprop.Type = D3D12_HEAP_TYPE_UPLOAD;
+	heapprop.CPUPageProperty =
+		D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+	heapprop.MemoryPoolPreference =
+		D3D12_MEMORY_POOL_UNKNOWN;
+
+	/*ヒープの設定はくそムズイらしいよ*/
+
+	//リソース設定構造体
+	D3D12_RESOURCE_DESC resdesc = {};
+
+	//バックバッファーに使うのでBufferを指定
+	resdesc.Dimension =
+		D3D12_RESOURCE_DIMENSION_BUFFER;
+	resdesc.Width = sizeof(vertices);
+	resdesc.Height = 1;
+	resdesc.DepthOrArraySize = 1;
+	resdesc.MipLevels = 1;
+	//画像ではないのでunknownにする
+	resdesc.Format = DXGI_FORMAT_UNKNOWN;
+	//アンチエイジングを行うパラメーターらしい
+	resdesc.SampleDesc.Count = 1;
+	resdesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+	//テクスチャレイアウトではないため↓を使うらしい
+	resdesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+	ID3D12Resource* vertBuff = nullptr;
+
+	//頂点バッファーの生成
+	result = _dev->CreateCommittedResource(
+		&heapprop,
+		D3D12_HEAP_FLAG_NONE,
+		&resdesc,
+		D3D12_RESOURCE_STATE_GENERIC_READ,
+		nullptr,
+		IID_PPV_ARGS(&vertBuff));
+
+	/*頂点バッファーは、GPUに頂点情報を受け取るためのリソース(領域)*/
+
+#pragma endregion
+
+#pragma region 頂点情報のマップ(コピー)
+
+	XMFLOAT3* vertMap = nullptr;
+
+	//バッファーに頂点情報コピーする
+	/*頂点バッファーの番号
+	　マップしたい範囲の指定
+	 ポインターのポインター*/
+	result = vertBuff->Map(0, nullptr, (void**)&vertMap);
+
+	//頂点データをコピーする
+	std::copy(std::begin(vertices), std::end(vertices), vertMap);
+
+	//コピーを解除する命令
+	vertBuff->Unmap(0, nullptr);
+
+	/*頂点バッファーだけでは、GPUにデータを渡すことはできないため、
+	　頂点情報をコピーする必要がある。
+	 コピーするためには、ポインターのアドレスが必要になる。
+	 (メモリを指定してるやつを指定する)
+	 (Aを参照してるBをCで持ってくる)*/
+#pragma endregion
+
+#pragma region 頂点バッファービューの作成
+
+	D3D12_VERTEX_BUFFER_VIEW vbView = {};//VertexBufferView
+
+	//バッファーの仮想アドレス取得(ポインターのポインター)
+	vbView.BufferLocation = vertBuff->GetGPUVirtualAddress();
+	//全バイト数を調べる
+	vbView.SizeInBytes = sizeof(vertices);
+	//1頂点当たりのバイト数を調べる
+	vbView.StrideInBytes = sizeof(vertices[0]);
+
+	/*頂点バッファービューは、データの大きさを知らせるもの*/
+#pragma endregion
+
+
 
 
 #pragma region メッセージループ
@@ -515,6 +613,7 @@ int main()
 		//画面のスワップ
 		/*命令の実行が完了したら、フリップを行う*/
 		_swapchain->Present(1, 0);
+
 #pragma endregion
 	}
 #pragma endregion

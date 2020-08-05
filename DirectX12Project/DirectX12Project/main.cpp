@@ -48,6 +48,19 @@ IDXGISwapChain4* _swapchain = nullptr;
 //return 0; 
 //}
 
+//デバッグレイヤー(「見えなかった」エラーを浮き彫りにしてくれる)
+void EnableDebugLayer()
+{
+	ID3D12Debug* debugLayer = nullptr;
+	auto result = D3D12GetDebugInterface(
+		IID_PPV_ARGS(&debugLayer));
+
+	//デバッグレイヤーを有効にする
+	debugLayer->EnableDebugLayer();
+
+	//有効化したら、インターフェースを解放
+	debugLayer->Release();
+}
 
 //ウィンドウの生成
 LRESULT WindowProcedure(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -66,6 +79,7 @@ LRESULT WindowProcedure(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
 int main()
 {
+
 #pragma region 基本的な初期化処理
 
 #pragma region ウィンドウの生成
@@ -107,6 +121,19 @@ int main()
 	ShowWindow(hwnd, SW_SHOW);
 #pragma endregion
 
+#pragma region デバッグレイヤーの有効化&DXGIのエラーメッセージ取得
+#ifdef _DEBUG
+	//デバッグレイヤーをオンにする
+	EnableDebugLayer();
+	//DXGIのエラーメッセージを取得できるようにする
+	CreateDXGIFactory2(DXGI_CREATE_FACTORY_DEBUG,
+		IID_PPV_ARGS(&_dxgiFactory));
+#else
+	CreateDXGIFactory1(IID_PPV_ARGS(&_dxgiFactory));
+
+#endif // _DEBUG
+#pragma endregion
+
 #pragma region Direct3Dデバイスの初期化
 	//使用できるフューチャーレベルを１つずつ調べる
 	D3D_FEATURE_LEVEL levels[] =
@@ -131,6 +158,7 @@ int main()
 		//どれもダメだった場合は_devにnullptrが入る
 	}
 #pragma endregion
+
 
 #pragma region 使用するアダプターを明示的に列挙する(後で消してもいい)
 	//_dxgiFactoryにDXGIFactoryオブジェクトが入る。
@@ -188,12 +216,12 @@ int main()
 
 	/*commandListはGPUに命令するメソッドを持つ、インターフェース
 	  commandListは命令をため込むだけで、実行はできない。*/
-	/*commandAllocatorはcommandListの命令を溜めておく箱(List)の役割
-	  commandListにまとめられた命令を、別の箱に溜めておく*/
+	  /*commandAllocatorはcommandListの命令を溜めておく箱(List)の役割
+		commandListにまとめられた命令を、別の箱に溜めておく*/
 #pragma endregion
 
 #pragma region コマンドキューの生成
-	  //コマンドキューの宣言
+		//コマンドキューの宣言
 	ID3D12CommandQueue* _cmdQueue = nullptr;
 
 	//コマンドキュー構造体の生成
@@ -269,17 +297,17 @@ int main()
 	  DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH によって
 	  ウィンドウモードで扱えるように切り替えている。*/
 
-	/*CreateSwapChainForHwndの概要
-	  引数1.ではコマンドキューオブジェクト
-	  引数2.ではウィンドウハンドル
-	  引数3.ではスワップチェーンの設定用構造体
-	  引数4.ではnullptr
-	  引数5.ではnullptr
-	  引数6.ではスワップチェーンオブジェクト*/
+	  /*CreateSwapChainForHwndの概要
+		引数1.ではコマンドキューオブジェクト
+		引数2.ではウィンドウハンドル
+		引数3.ではスワップチェーンの設定用構造体
+		引数4.ではnullptr
+		引数5.ではnullptr
+		引数6.ではスワップチェーンオブジェクト*/
 #pragma endregion
 
 #pragma region ディスクリプタヒープの作成
-	  //ディスクリプタヒープの設定構造体の宣言
+		//ディスクリプタヒープの設定構造体の宣言
 	D3D12_DESCRIPTOR_HEAP_DESC heapDesc = {};
 
 	//ディスクリプタヒープ構造体の設定↓
@@ -311,9 +339,40 @@ int main()
 	  ディスクリプタヒープに書き込まれた情報を、GPUに教える。*/
 #pragma endregion
 
-	
+#pragma region フェンスの作成
+	  //フェンスの作成
+	ID3D12Fence* _fence = nullptr;
+	UINT64 _fenceVal = 0;
+
+	result = _dev->CreateFence(_fenceVal, D3D12_FENCE_FLAG_NONE,
+		IID_PPV_ARGS(&_fence));
+
+	//フェンスの呼び出し
+	_cmdQueue->Signal(_fence, ++_fenceVal);
+
+	if (_fence->GetCompletedValue() != _fenceVal)
+	{
+		//イベントハンドルの取得
+		auto event = CreateEvent(nullptr, false, false, nullptr);
+
+		/*この値になったらイベントを発生させる
+		　発生させるイベントをきめる*/
+		_fence->SetEventOnCompletion(_fenceVal, event);
+
+		//イベントが発生するまで待ち続ける(INFINITE)
+		WaitForSingleObject(event, INFINITE);
+
+		//イベントハンドルを閉じる
+		CloseHandle(event);
+	}
+
+	/*フェンスは、コマンドリストの命令が
+　    すべて完了したかどうかを調べる*/
+#pragma endregion
+
+
 #pragma region ディスクリプタとスワップチェーンを関連付け+レンダーターゲットビューの作成
-	  //スワップチェーンのパラメーターを取得
+	//スワップチェーンのパラメーターを取得
 	DXGI_SWAP_CHAIN_DESC scDesc = {};
 	result = _swapchain->GetDesc(&scDesc);
 
@@ -346,7 +405,7 @@ int main()
 
 
 #pragma region メッセージループ
-	//メッセージループ
+	  //メッセージループ
 	MSG msg = {};
 
 	while (true)
@@ -380,6 +439,31 @@ int main()
 
 		//レンダーターゲットの設定↑
 		//----------------------------------------------------------------------------
+		//リソースバリアの設定↓
+
+		D3D12_RESOURCE_BARRIER BarrierDesc = {};
+
+		//バリアの種別(遷移はtransition)
+		BarrierDesc.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+		//指定なし
+		BarrierDesc.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+		//バックバッファーリソース
+		BarrierDesc.Transition.pResource = _backBuffers[bbIdx];
+		BarrierDesc.Transition.Subresource = 0;
+
+		//直前はpresent(存在)状態
+		BarrierDesc.Transition.StateBefore =
+			D3D12_RESOURCE_STATE_PRESENT;
+		//この先からレンダーターゲット状態
+		BarrierDesc.Transition.StateAfter =
+			D3D12_RESOURCE_STATE_RENDER_TARGET;
+
+		//バリアの実行
+		_cmdList->ResourceBarrier(1, &BarrierDesc);
+
+
+		//リソースバリアの設定↑
+		//----------------------------------------------------------------------------
 		//レンダーターゲットのクリア↓
 
 		//画面を特定の色を指定してクリア
@@ -396,6 +480,7 @@ int main()
 
 		//レンダーターゲットのクリア↑
 		//---------------------------------------------------------------------
+
 		//ため込んだ命令の実行↓
 
 		//命令のクローズ
@@ -415,6 +500,18 @@ int main()
 
 		//ため込んだ命令の実行↑
 		//---------------------------------------------------------------------------
+
+		//現在の状態を、レンダーターゲットからPresentに移行する↓
+		//前後だけを入れ替える
+		BarrierDesc.Transition.StateBefore =
+			D3D12_RESOURCE_STATE_RENDER_TARGET;//これが現在の状態
+		BarrierDesc.Transition.StateAfter =
+			D3D12_RESOURCE_STATE_PRESENT;//こっちがこれからなる状態
+
+		_cmdList->ResourceBarrier(1, &BarrierDesc);//実行
+
+		//現在の状態を、レンダーターゲットからPresentに移行する↑
+		//-------------------------------------------------------------------
 		//画面のスワップ
 		/*命令の実行が完了したら、フリップを行う*/
 		_swapchain->Present(1, 0);

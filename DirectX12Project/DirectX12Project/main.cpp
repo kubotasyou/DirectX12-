@@ -3,10 +3,12 @@
 #include <dxgi1_6.h>//ファイルリンク(.lib)が必要
 #include <vector>
 #include <DirectXMath.h>
+#include <d3dcompiler.h>//シェーダーのコンパイル用
 
 //リンクの設定
-#pragma comment(lib,"d3d12.lib")
-#pragma comment(lib,"dxgi.lib")
+#pragma comment(lib, "d3d12.lib")
+#pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "d3dcompiler.lib")
 
 #ifdef _DEBUG
 #include < iostream >
@@ -30,6 +32,11 @@ XMFLOAT3 vertices[] =
     {-1.0f, +1.0f, 0.0f},
     {+1.0f, -1.0f, 0.0f},
 };
+
+//シェーダーオブジェクトを入れるための変数を用意
+ID3DBlob* _vsBlob = nullptr;
+ID3DBlob* _psBlob = nullptr;
+ID3DBlob* errorBlob = nullptr;
 
 
 //// @brief コンソール 画面 に フォーマット 付き 文字列 を 表示
@@ -497,6 +504,65 @@ int main()
 	vbView.StrideInBytes = sizeof(vertices[0]);
 
 	/*頂点バッファービューは、データの大きさを知らせるもの*/
+#pragma endregion
+
+
+
+#pragma region シェーダーの読み込みと生成
+
+	//頂点シェーダーの読み込み
+	result = D3DCompileFromFile(
+		L"BasicVertexShader.hlsl",        //シェーダー名
+		nullptr,                          //defineはしない
+		D3D_COMPILE_STANDARD_FILE_INCLUDE,//インクルードはデフォルト
+		"BasicVS",                        //呼び出す関数はBasicVS
+		"vs_5_0",                         //対象シェーダーはvs_5_0
+		D3DCOMPILE_DEBUG |
+		D3DCOMPILE_SKIP_OPTIMIZATION,     //デバッグ用、最適化はしない
+		0,
+		&_vsBlob,
+		&errorBlob);                      //エラー時はerrorBlobにメッセージが入る
+
+	//ピクセルシェーダーの読み込み      
+	result = D3DCompileFromFile(          //シェーダー名
+		L"BasicPixelShader.hlsl",		  //defineはしない
+		nullptr,						  //インクルードはデフォルト
+		D3D_COMPILE_STANDARD_FILE_INCLUDE,//呼び出す関数はBasicVS
+		"BasicPS",						  //対象シェーダーはvs_5_0
+		"ps_5_0",
+		D3DCOMPILE_DEBUG |				  //デバッグ用、最適化はしない
+		D3DCOMPILE_SKIP_OPTIMIZATION,
+		0,
+		&_psBlob,						  //エラー時はerrorBlobにメッセージが入る
+		&errorBlob);
+
+#pragma region 読み込み時のエラーメッセージの表示
+
+	if (FAILED(result))
+	{
+		//ファイルが見つかりませんの時
+		if (result == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND))
+		{
+			::OutputDebugStringA("ファイルが見つかりません");
+
+			return 0;
+		}
+		else
+		{
+			std::string errstr;
+			errstr.resize(errorBlob->GetBufferSize());
+
+			std::copy_n((char*)errorBlob->GetBufferPointer(),
+				errorBlob->GetBufferSize(),
+				errstr.begin());
+			errstr += "\n";
+
+			::OutputDebugStringA(errstr.c_str());
+		}
+	}
+
+#pragma endregion
+
 #pragma endregion
 
 

@@ -365,7 +365,6 @@ int main()
 
 	//フェンスの呼び出し
 	_cmdQueue->Signal(_fence, ++_fenceVal);
-
 	if (_fence->GetCompletedValue() != _fenceVal)
 	{
 		//イベントハンドルの取得
@@ -506,6 +505,25 @@ int main()
 	/*頂点バッファービューは、データの大きさを知らせるもの*/
 #pragma endregion
 
+#pragma region 頂点レイアウト
+
+	//頂点レイアウト構造体
+	D3D12_INPUT_ELEMENT_DESC inputLayout[] =
+	{
+		"POSITION",                                //座標のデータを指定
+		0,
+		DXGI_FORMAT_R32G32B32_FLOAT,               //Float3型を使用するといっている
+		0,                                         //GPUが頂点データを見てる
+		D3D12_APPEND_ALIGNED_ELEMENT,//データの場所
+		D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,//1頂点ごとのレイアウトが入っている
+		0                                          //一度に描画するインスタンシングの数
+	};
+
+	/*頂点レイアウトは、GPUに頂点データがどんなものかを教えるもの*/
+
+#pragma endregion
+
+
 
 
 #pragma region シェーダーの読み込みと生成
@@ -567,6 +585,166 @@ int main()
 
 
 
+#pragma region グラフィクスパイプラインステートの作成
+
+	//グラフィクスパイプラインステート構造体の作成
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC gpipeline = {};
+
+
+	//ルートシグネチャの設定構造体
+	D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc = {};
+
+	//空ではあるけども頂点情報だけは存在することを伝える
+	rootSignatureDesc.Flags =
+		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+	//不定形のオブジェクト確保変数を作成
+	ID3DBlob* rootSigBlob = nullptr;
+
+	//バイナリコード(ソースコードを機械語に変換するもの)の作成
+	result = D3D12SerializeRootSignature(
+		&rootSignatureDesc,            //ルートシグネチャの設定
+		D3D_ROOT_SIGNATURE_VERSION_1_0,//ルートシグネチャのバージョン
+		&rootSigBlob,                  //シェーダーの時と同じ
+		&errorBlob);                   //エラーの時はここにメッセージが入る
+
+
+	ID3D12RootSignature* rootsignature = nullptr;
+	//ルートシグネチャオブジェクトの作成
+	result = _dev->CreateRootSignature(
+		0,
+		rootSigBlob->GetBufferPointer(),
+		rootSigBlob->GetBufferSize(),
+		IID_PPV_ARGS(&rootsignature)
+	);
+
+	rootSigBlob->Release();
+
+	gpipeline.pRootSignature = rootsignature;
+
+
+
+	//シェーダーのセット↓
+
+	//頂点シェーダーのセット
+	gpipeline.VS.pShaderBytecode = _vsBlob->GetBufferPointer();
+	gpipeline.VS.BytecodeLength  = _vsBlob->GetBufferSize();
+
+	//ピクセルシェーダーのセット
+	gpipeline.PS.pShaderBytecode = _psBlob->GetBufferPointer();
+	gpipeline.PS.BytecodeLength  = _psBlob->GetBufferSize();
+
+	//シェーダーのセット↑
+	//------------------------------------------------------------------------
+	//サンプルマスクとラスタライザーステートの設定↓
+
+	//デフォルトのサンプルマスクを表す定数
+	gpipeline.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+
+	//アンチエイリアスを使わないためfalseにする
+	gpipeline.RasterizerState.MultisampleEnable = false;
+
+	//カリング(必要のないポリゴンを描画しないようにする)をしない
+	gpipeline.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+
+	//図形の中身を塗りつぶす
+	gpipeline.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+
+	//深度方向のクリッピングを有効にする
+	gpipeline.RasterizerState.DepthClipEnable = true;
+
+	//サンプルマスクとラスタライザーステートの設定↑
+	//-----------------------------------------------------------------------
+	//ブレンドステートの設定↓
+
+	//αテスト(透明の設定を反映する)を行うかどうか
+	gpipeline.BlendState.AlphaToCoverageEnable = false;
+
+	//レンダーターゲットをそれぞれ個別で設定するか
+	gpipeline.BlendState.IndependentBlendEnable = false;
+
+
+	//レンダーターゲットの設定構造体
+	D3D12_RENDER_TARGET_BLEND_DESC renderTargetBlendDesc = {};
+
+	//α値などのブレンドをするか
+	renderTargetBlendDesc.BlendEnable = false;
+
+	//論理演算(1と0で1にするとか)を行うかどうか
+	renderTargetBlendDesc.LogicOpEnable = false;
+	/*BlendEnableとLogicOpEnableは同時にtrueにすることはできない*/
+
+	//全ての色でブレンドを可能にする
+	renderTargetBlendDesc.RenderTargetWriteMask =
+		D3D12_COLOR_WRITE_ENABLE_ALL;
+
+	//ブレンドの反映
+	gpipeline.BlendState.RenderTarget[0] =
+		renderTargetBlendDesc;
+
+	/*ブレンドステートは場合によって、
+	　使用するレンダーターゲットの分だけ個別に設定が必要になる。*/
+
+	//ブレンドステートの設定↑
+	//---------------------------------------------------------------------------
+	//入力レイアウトの設定↓
+
+	//レイアウトの先頭アドレスを取得
+	gpipeline.InputLayout.pInputElementDescs = inputLayout;
+
+	//レイアウト配列の要素数を取得
+	gpipeline.InputLayout.NumElements = _countof(inputLayout);
+
+	//頂点のカットを行わない(6頂点で四角形を作るタイプ)
+	gpipeline.IBStripCutValue =
+		D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED;
+
+	//三角形を構成するようにする
+	gpipeline.PrimitiveTopologyType =
+		D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+
+	//入力レイアウトの設定↑
+	//---------------------------------------------------------------------------------
+	//レンダーターゲットの設定↓
+
+	//レンダーターゲットは今は一つしかないよ
+	gpipeline.NumRenderTargets = 1;
+
+	//0～1に正規化されたRGBA
+	gpipeline.RTVFormats[0] =
+		DXGI_FORMAT_R8G8B8A8_UNORM;
+
+	//レンダーターゲットの設定↑
+	//-------------------------------------------------------------------------
+	//アンチエイリアシングのためのサンプル数設定↓
+
+	//サンプリングは1ピクセルにつき１回
+	gpipeline.SampleDesc.Count = 1;
+
+	//クオリティは最低
+	gpipeline.SampleDesc.Quality = 0;
+
+	//アンチエイリアシングのためのサンプル数設定↑
+
+	//グラフィックスパイプラインステートオブジェクトの生成↓
+
+	//オブジェクトの宣言
+	ID3D12PipelineState* _pipelinestate = nullptr;
+
+	//オブジェクトの作成
+	result = _dev->CreateGraphicsPipelineState(
+		&gpipeline, IID_PPV_ARGS(&_pipelinestate));
+
+	//グラフィックスパイプラインステートオブジェクトの生成↑
+
+	/*グラフィックパイプラインステートとは
+	  グラフィックパイプラインの設定を定義する構造体。
+	  グラフィックパイプラインにかかわる設定をひとまとめにして、
+	  効率よくするのがグラフィクスパイプラインステート*/
+
+#pragma endregion
+
+
 
 #pragma region メッセージループ
 	  //メッセージループ
@@ -588,7 +766,7 @@ int main()
 
 #pragma region スワップチェーンの実行
 		//毎フレームクリア
-		result = _cmdAllocator->Reset();
+		//result = _cmdAllocator->Reset();
 
 		//レンダーターゲットの設定↓
 
@@ -625,7 +803,6 @@ int main()
 		//バリアの実行
 		_cmdList->ResourceBarrier(1, &BarrierDesc);
 
-
 		//リソースバリアの設定↑
 		//----------------------------------------------------------------------------
 		//レンダーターゲットのクリア↓
@@ -644,27 +821,6 @@ int main()
 
 		//レンダーターゲットのクリア↑
 		//---------------------------------------------------------------------
-
-		//ため込んだ命令の実行↓
-
-		//命令のクローズ
-		/*命令を終了して、実行フェーズに移行する*/
-		_cmdList->Close();
-
-		//コマンドリストの実行
-		ID3D12CommandList* cmdlists[] = { _cmdList };
-		_cmdQueue->ExecuteCommandLists(1, cmdlists);
-
-		/*実行が終わったらコマンドリストは不要になるため、
-		  中身をクリアする*/
-		  //キューをクリア
-		_cmdAllocator->Reset();
-		//実行を終了し、命令フェーズに移行する
-		_cmdList->Reset(_cmdAllocator, nullptr);
-
-		//ため込んだ命令の実行↑
-		//---------------------------------------------------------------------------
-
 		//現在の状態を、レンダーターゲットからPresentに移行する↓
 		//前後だけを入れ替える
 		BarrierDesc.Transition.StateBefore =
@@ -675,6 +831,46 @@ int main()
 		_cmdList->ResourceBarrier(1, &BarrierDesc);//実行
 
 		//現在の状態を、レンダーターゲットからPresentに移行する↑
+		//-------------------------------------------------------------------------
+		//ため込んだ命令の実行↓
+
+		//命令のクローズ
+		/*命令を終了して、実行フェーズに移行する*/
+		_cmdList->Close();
+
+		//コマンドリストの実行
+		ID3D12CommandList* cmdlists[] = { _cmdList };
+		_cmdQueue->ExecuteCommandLists(1, cmdlists);
+
+
+		//フェンスの呼び出し
+		_cmdQueue->Signal(_fence, ++_fenceVal);
+		if (_fence->GetCompletedValue() != _fenceVal)
+		{
+			//イベントハンドルの取得
+			auto event = CreateEvent(nullptr, false, false, nullptr);
+
+			/*この値になったらイベントを発生させる
+			　発生させるイベントをきめる*/
+			_fence->SetEventOnCompletion(_fenceVal, event);
+
+			//イベントが発生するまで待ち続ける(INFINITE)
+			WaitForSingleObject(event, INFINITE);
+
+			//イベントハンドルを閉じる
+			CloseHandle(event);
+		}
+
+
+
+		/*実行が終わったらコマンドリストは不要になるため、
+		  中身をクリアする*/
+		  //キューをクリア
+		_cmdAllocator->Reset();
+		//実行を終了し、命令フェーズに移行する
+		_cmdList->Reset(_cmdAllocator, nullptr);
+
+		//ため込んだ命令の実行↑
 		//-------------------------------------------------------------------
 		//画面のスワップ
 		/*命令の実行が完了したら、フリップを行う*/
@@ -686,5 +882,6 @@ int main()
 
 	//もうクラスは使わないので登録を解除する
 	UnregisterClass(w.lpszClassName, w.hInstance);
+	return 0;
 }
 

@@ -28,9 +28,9 @@ IDXGISwapChain4* _swapchain = nullptr;
 //頂点数(頂点の順序は時計回りにする)
 XMFLOAT3 vertices[] = 
 {
-	{-1.0f, -1.0f, 0.0f},
-    {-1.0f, +1.0f, 0.0f},
-    {+1.0f, -1.0f, 0.0f},
+	{-0.5f, -0.7f, 0.0f},//左下
+    {+0.0f, +0.7f, 0.0f},//左上
+    {+0.5f, -0.7f, 0.0f},//右下
 };
 
 //シェーダーオブジェクトを入れるための変数を用意
@@ -550,6 +550,7 @@ int main()
 	//グラフィクスパイプラインステート構造体の作成
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC gpipeline = {};
 
+	//ルートシグネチャの生成↓
 
 	//ルートシグネチャの設定構造体
 	D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc = {};
@@ -582,7 +583,7 @@ int main()
 
 	gpipeline.pRootSignature = rootsignature;
 
-
+	//ルートシグネチャの生成↑
 
 	//シェーダーのセット↓
 
@@ -704,6 +705,46 @@ int main()
 
 #pragma endregion
 
+#pragma region ビューポートとシザー矩形の設定
+
+	//ビューポート設定↓
+
+	//ビューポート設定構造体
+	D3D12_VIEWPORT viewport = {};
+
+	//出力先の横幅(ピクセル)
+	viewport.Width = window_width;
+
+	//出力先の縦幅(ピクセル)
+	viewport.Height = window_height;
+
+	viewport.TopLeftX = 0;   //出力先の左上座標X
+	viewport.TopLeftY = 0;   //出力先の左上座標Y
+	viewport.MaxDepth = 1.0f;//深度最大値
+	viewport.MinDepth = 0.0f;//深度最小値
+
+	/*ビューポートは、画面に対する描画をどうするかというもの。
+	　出力した画像がビューポートに収まるように表示される*/
+
+	//ビューポート設定↑
+
+	//シザー矩形設定↓
+
+	//シザー矩形設定構造体
+	D3D12_RECT scissorrect = {};
+
+	scissorrect.top = 0; //切り抜き上座標
+	scissorrect.left = 0;//切り抜き左座標
+	scissorrect.bottom = scissorrect.top + window_height;//切り抜き下座標
+	scissorrect.right = scissorrect.left + window_width; //切り抜き右座標
+
+	/*シザー矩形は、ビューポートに出力された画像の、
+	　どこからどこまでを表示するかを設定するもの。
+	 一部分だけを表示したい場合はビューポートの値より小さくする。*/
+
+	//シザー矩形設定↑
+
+#pragma endregion
 
 
 #pragma region メッセージループ
@@ -777,6 +818,35 @@ int main()
 
 		//色を反映させる
 		_cmdList->ClearRenderTargetView(rtvH, clearColor, 0, nullptr);
+
+		//パイプラインステートの読み込み
+		_cmdList->SetPipelineState(_pipelinestate);
+
+		//ビューポートの読み込み
+		_cmdList->RSSetViewports(1, &viewport);
+
+		//シザー矩形の読み込み
+		_cmdList->RSSetScissorRects(1, &scissorrect);
+
+		//ルートシグネチャの読み込み
+		_cmdList->SetGraphicsRootSignature(rootsignature);
+
+		//頂点をどう組み合わせるか→三角形
+		_cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+		//頂点バッファーをセットする
+		/*スロット番号
+		　頂点バッファービューの数
+		  頂点バッファービューの配列*/
+		_cmdList->IASetVertexBuffers(0, 1, &vbView);
+
+		//描画コマンドの呼び出し
+		/*頂点数
+		  インスタンス(表示するポリゴンの)数
+		  頂点データのオフセット
+		  インスタンスのオフセット*/
+		_cmdList->DrawInstanced(3, 1, 0, 0);
+
 
 		//画面のクリア↑
 		//---------------------------------------------------------------------

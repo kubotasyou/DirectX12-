@@ -38,33 +38,6 @@ ID3DBlob* _vsBlob = nullptr;
 ID3DBlob* _psBlob = nullptr;
 ID3DBlob* errorBlob = nullptr;
 
-
-//// @brief コンソール 画面 に フォーマット 付き 文字列 を 表示
-//// @param format フォーマット（% d とか% f とか の）
-//// @param 可変 長 引数
-//// @remarks この 関数 は デバッグ 用 です。 デバッグ 時 にしか 動作 し ませ ん
-//void DebugOutputFormatString( const char* format, ...) 
-//{
-//#ifdef _DEBUG 
-//	va_list valist;
-//	va_start( valist, format);
-//	printf( format, valist);
-//	va_end( valist);
-//#endif
-//} 
-//#ifdef _DEBUG
-//int main()
-//{
-//
-//#else
-//int WINAPI WinMain( HINSTANCE, HINSTANCE, LPSTR, int) 
-//{ 
-//#endif 
-//	DebugOutputFormatString(" Show window test.");
-//getchar();
-//return 0; 
-//}
-
 //デバッグレイヤー(「見えなかった」エラーを浮き彫りにしてくれる)
 void EnableDebugLayer()
 {
@@ -143,9 +116,9 @@ int main()
 #ifdef _DEBUG
 	//デバッグレイヤーをオンにする
 	EnableDebugLayer();
-	//DXGIのエラーメッセージを取得できるようにする
-	CreateDXGIFactory2(DXGI_CREATE_FACTORY_DEBUG,
-		IID_PPV_ARGS(&_dxgiFactory));
+	////DXGIのエラーメッセージを取得できるようにする
+	//CreateDXGIFactory2(DXGI_CREATE_FACTORY_DEBUG,
+	//	IID_PPV_ARGS(&_dxgiFactory));
 #else
 	CreateDXGIFactory1(IID_PPV_ARGS(&_dxgiFactory));
 
@@ -363,26 +336,12 @@ int main()
 	result = _dev->CreateFence(_fenceVal, D3D12_FENCE_FLAG_NONE,
 		IID_PPV_ARGS(&_fence));
 
-	//フェンスの呼び出し
-	_cmdQueue->Signal(_fence, ++_fenceVal);
-	if (_fence->GetCompletedValue() != _fenceVal)
-	{
-		//イベントハンドルの取得
-		auto event = CreateEvent(nullptr, false, false, nullptr);
-
-		/*この値になったらイベントを発生させる
-		　発生させるイベントをきめる*/
-		_fence->SetEventOnCompletion(_fenceVal, event);
-
-		//イベントが発生するまで待ち続ける(INFINITE)
-		WaitForSingleObject(event, INFINITE);
-
-		//イベントハンドルを閉じる
-		CloseHandle(event);
-	}
+	//フェンスの実行はループの中で行います。
 
 	/*フェンスは、コマンドリストの命令が
-　    すべて完了したかどうかを調べる*/
+　    すべて完了したかどうかを調べる
+	  命令がすべて終わっていたら実行に移動し、
+	  実行が終わったらまた命令に移動する。*/
 #pragma endregion
 
 #pragma region ディスクリプタとスワップチェーンを関連付け+レンダーターゲットビューの作成
@@ -393,15 +352,16 @@ int main()
 	//バッファーの数の設定
 	std::vector<ID3D12Resource*> _backBuffers(scDesc.BufferCount);
 
+	//レンダーターゲットビューの生成
+	D3D12_CPU_DESCRIPTOR_HANDLE handle =
+		rtvHeaps->GetCPUDescriptorHandleForHeapStart();
+
 	//バッファーの数分回す
 	for (int i = 0; i < scDesc.BufferCount; ++i)
 	{
 		//表裏両方に設定
 		result = _swapchain->GetBuffer(i, IID_PPV_ARGS(&_backBuffers[i]));
 
-		//レンダーターゲットビューの生成
-		D3D12_CPU_DESCRIPTOR_HANDLE handle =
-			rtvHeaps->GetCPUDescriptorHandleForHeapStart();
 
 		//レンダーターゲットビューのサイズを取得して
 		//ポインターを１つずらす。(表面から裏面に行くように)
@@ -764,22 +724,11 @@ int main()
 			break;
 		}
 
-#pragma region スワップチェーンの実行
-		//毎フレームクリア
-		//result = _cmdAllocator->Reset();
-
-		//レンダーターゲットの設定↓
+#pragma region 画面初期化&実行
 
 		//次のフレームで表示されるバッファーのインデックス(例)表:0,裏1 みたいな感じ)
 		auto bbIdx = _swapchain->GetCurrentBackBufferIndex();//bbIdx(BackBufferIndex)
-
-		//レンダーターゲットビューの描画
-		auto rtvH = rtvHeaps->GetCPUDescriptorHandleForHeapStart();
-
-		rtvH.ptr += bbIdx * _dev->GetDescriptorHandleIncrementSize(
-			D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-
-		//レンダーターゲットの設定↑
+		
 		//----------------------------------------------------------------------------
 		//リソースバリアの設定↓
 
@@ -805,7 +754,23 @@ int main()
 
 		//リソースバリアの設定↑
 		//----------------------------------------------------------------------------
-		//レンダーターゲットのクリア↓
+		//レンダーターゲットの設定↓
+
+		//レンダーターゲットビューの描画
+		auto rtvH = rtvHeaps->GetCPUDescriptorHandleForHeapStart();
+
+		rtvH.ptr += bbIdx * _dev->GetDescriptorHandleIncrementSize(
+			D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+
+		/*レンダーターゲットビューの数
+		　rtvHeapsのアドレス
+		  マルチレンダーターゲット
+		  深度*/
+		_cmdList->OMSetRenderTargets(1, &rtvH, true, nullptr);
+
+		//レンダーターゲットの設定↑
+		//--------------------------------------------------------------------------------
+		//画面のクリア↓
 
 		//画面を特定の色を指定してクリア
 		float clearColor[] = { 1.0f,1.0f,0.0f,1.0f };
@@ -813,15 +778,10 @@ int main()
 		//色を反映させる
 		_cmdList->ClearRenderTargetView(rtvH, clearColor, 0, nullptr);
 
-		/*レンダーターゲットビューの数
-		　rtvHeapsのアドレス
-		 マルチレンダーターゲット
-		 深度*/
-		_cmdList->OMSetRenderTargets(1, &rtvH, true, nullptr);
-
-		//レンダーターゲットのクリア↑
+		//画面のクリア↑
 		//---------------------------------------------------------------------
 		//現在の状態を、レンダーターゲットからPresentに移行する↓
+
 		//前後だけを入れ替える
 		BarrierDesc.Transition.StateBefore =
 			D3D12_RESOURCE_STATE_RENDER_TARGET;//これが現在の状態
@@ -842,9 +802,8 @@ int main()
 		ID3D12CommandList* cmdlists[] = { _cmdList };
 		_cmdQueue->ExecuteCommandLists(1, cmdlists);
 
-
 		//フェンスの呼び出し
-		_cmdQueue->Signal(_fence, ++_fenceVal);
+		_cmdQueue->Signal(_fence, ++_fenceVal);//待ちます
 		if (_fence->GetCompletedValue() != _fenceVal)
 		{
 			//イベントハンドルの取得
@@ -860,8 +819,6 @@ int main()
 			//イベントハンドルを閉じる
 			CloseHandle(event);
 		}
-
-
 
 		/*実行が終わったらコマンドリストは不要になるため、
 		  中身をクリアする*/

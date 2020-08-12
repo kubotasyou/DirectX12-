@@ -26,12 +26,15 @@ IDXGIFactory6* _dxgiFactory = nullptr;
 IDXGISwapChain4* _swapchain = nullptr;
 
 //頂点数(頂点の順序は時計回りにする)
-XMFLOAT3 vertices[] = 
+XMFLOAT3 vertices[] =
 {
-	{-0.5f, -0.7f, 0.0f},//左下
-    {+0.0f, +0.7f, 0.0f},//左上
-    {+0.5f, -0.7f, 0.0f},//右下
+	{-0.4f, -0.7f, 0.0f},//左下0
+	{-0.4f, +0.7f, 0.0f},//左上1
+	{+0.4f, -0.7f, 0.0f},//右下2
+	{+0.4f, +0.7f, 0.0f},//右上3
 };
+
+
 
 //シェーダーオブジェクトを入れるための変数を用意
 ID3DBlob* _vsBlob = nullptr;
@@ -345,7 +348,7 @@ int main()
 #pragma endregion
 
 #pragma region ディスクリプタとスワップチェーンを関連付け+レンダーターゲットビューの作成
-	 //スワップチェーンのパラメーターを取得
+	  //スワップチェーンのパラメーターを取得
 	DXGI_SWAP_CHAIN_DESC scDesc = {};
 	result = _swapchain->GetDesc(&scDesc);
 
@@ -384,7 +387,7 @@ int main()
 
 #pragma region 頂点バッファーの作成
 
-	//頂点ヒープ設定
+	  //頂点ヒープ設定
 	D3D12_HEAP_PROPERTIES heapprop = {};
 
 	heapprop.Type = D3D12_HEAP_TYPE_UPLOAD;
@@ -413,6 +416,7 @@ int main()
 	//テクスチャレイアウトではないため↓を使うらしい
 	resdesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 
+	//頂点バッファーの宣言
 	ID3D12Resource* vertBuff = nullptr;
 
 	//頂点バッファーの生成
@@ -464,6 +468,65 @@ int main()
 
 	/*頂点バッファービューは、データの大きさを知らせるもの*/
 #pragma endregion
+
+
+#pragma region インデックスバッファーの作成
+
+	//インデックスの実装
+	unsigned short indices[] =
+	{
+		0,1,2,
+		1,3,2,
+	};
+
+	//インデックスバッファーの宣言
+	ID3D12Resource* idxBuff = nullptr;
+
+	//設定は頂点バッファーとほぼ同じ(リソースの構造体とヒープを使いまわすよ)
+	resdesc.Width = sizeof(indices);
+
+	//インデックスバッファーの生成
+	result = _dev->CreateCommittedResource(
+		&heapprop,
+		D3D12_HEAP_FLAG_NONE,
+		&resdesc,
+		D3D12_RESOURCE_STATE_GENERIC_READ,
+		nullptr,
+		IID_PPV_ARGS(&idxBuff));
+
+#pragma endregion
+
+#pragma region インデックスのマップ(コピー)
+
+	unsigned short* mappedIdx = nullptr;
+
+	//マップ開始宣言
+	idxBuff->Map(0, nullptr, (void**)&mappedIdx);
+
+	//マップの実行
+	std::copy(std::begin(indices), std::end(indices), mappedIdx);
+
+	//マップの終了宣言
+	idxBuff->Unmap(0, nullptr);
+
+#pragma endregion
+
+#pragma region インデックスバッファービューの作成
+
+	D3D12_INDEX_BUFFER_VIEW ibView = {};//IndexBufferView
+
+	//インデックスバッファーの仮想アドレスを取得
+	ibView.BufferLocation = idxBuff->GetGPUVirtualAddress();
+
+	//型のデータを決定して教える
+	ibView.Format = DXGI_FORMAT_R16_UINT;
+
+	//全サイズを計測する
+	ibView.SizeInBytes = sizeof(indices);
+
+#pragma endregion
+
+
 
 #pragma region 頂点レイアウト
 
@@ -589,11 +652,11 @@ int main()
 
 	//頂点シェーダーのセット
 	gpipeline.VS.pShaderBytecode = _vsBlob->GetBufferPointer();
-	gpipeline.VS.BytecodeLength  = _vsBlob->GetBufferSize();
+	gpipeline.VS.BytecodeLength = _vsBlob->GetBufferSize();
 
 	//ピクセルシェーダーのセット
 	gpipeline.PS.pShaderBytecode = _psBlob->GetBufferPointer();
-	gpipeline.PS.BytecodeLength  = _psBlob->GetBufferSize();
+	gpipeline.PS.BytecodeLength = _psBlob->GetBufferSize();
 
 	//シェーダーのセット↑
 	//------------------------------------------------------------------------
@@ -646,11 +709,11 @@ int main()
 	/*ブレンドステートは場合によって、
 	　使用するレンダーターゲットの分だけ個別に設定が必要になる。*/
 
-	//ブレンドステートの設定↑
-	//---------------------------------------------------------------------------
-	//入力レイアウトの設定↓
+	 //ブレンドステートの設定↑
+	 //---------------------------------------------------------------------------
+	 //入力レイアウトの設定↓
 
-	//レイアウトの先頭アドレスを取得
+	 //レイアウトの先頭アドレスを取得
 	gpipeline.InputLayout.pInputElementDescs = inputLayout;
 
 	//レイアウト配列の要素数を取得
@@ -707,9 +770,9 @@ int main()
 
 #pragma region ビューポートとシザー矩形の設定
 
-	//ビューポート設定↓
+	  //ビューポート設定↓
 
-	//ビューポート設定構造体
+	  //ビューポート設定構造体
 	D3D12_VIEWPORT viewport = {};
 
 	//出力先の横幅(ピクセル)
@@ -726,11 +789,11 @@ int main()
 	/*ビューポートは、画面に対する描画をどうするかというもの。
 	　出力した画像がビューポートに収まるように表示される*/
 
-	//ビューポート設定↑
+	 //ビューポート設定↑
 
-	//シザー矩形設定↓
+	 //シザー矩形設定↓
 
-	//シザー矩形設定構造体
+	 //シザー矩形設定構造体
 	D3D12_RECT scissorrect = {};
 
 	scissorrect.top = 0; //切り抜き上座標
@@ -742,7 +805,7 @@ int main()
 	　どこからどこまでを表示するかを設定するもの。
 	 一部分だけを表示したい場合はビューポートの値より小さくする。*/
 
-	//シザー矩形設定↑
+	 //シザー矩形設定↑
 
 #pragma endregion
 
@@ -769,7 +832,7 @@ int main()
 
 		//次のフレームで表示されるバッファーのインデックス(例)表:0,裏1 みたいな感じ)
 		auto bbIdx = _swapchain->GetCurrentBackBufferIndex();//bbIdx(BackBufferIndex)
-		
+
 		//----------------------------------------------------------------------------
 		//リソースバリアの設定↓
 
@@ -840,12 +903,22 @@ int main()
 		  頂点バッファービューの配列*/
 		_cmdList->IASetVertexBuffers(0, 1, &vbView);
 
+		//インデックスバッファーをセットする
+		_cmdList->IASetIndexBuffer(&ibView);
+
 		//描画コマンドの呼び出し
 		/*頂点数
 		  インスタンス(表示するポリゴンの)数
 		  頂点データのオフセット
 		  インスタンスのオフセット*/
-		_cmdList->DrawInstanced(3, 1, 0, 0);
+		//_cmdList->DrawInstanced(4, 1, 0, 0);
+
+		//インデックスで描画できるようにする
+		/*インデックスの数(頂点数ではないよ)
+		  インスタンス(表示するポリゴンの)数
+		  頂点データのオフセット
+		  インスタンスのオフセット*/
+		_cmdList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 
 
 		//画面のクリア↑
@@ -894,6 +967,7 @@ int main()
 		  中身をクリアする*/
 		  //キューをクリア
 		_cmdAllocator->Reset();
+
 		//実行を終了し、命令フェーズに移行する
 		_cmdList->Reset(_cmdAllocator, nullptr);
 
